@@ -1,0 +1,73 @@
+feeder: feeder.dataloader_joint.JointFeeder
+phase: test
+num_epoch: 40
+work_dir: ./work_dir/test_single_depth
+batch_size: 16
+random_seed: 1234
+test_batch_size: 16
+num_worker: 4
+device: 0
+log_interval: 100
+eval_interval: 1
+save_interval: 5
+load_weights: './weights/single_depth.pt'
+optimizer_args:
+  optimizer: Adam
+  learning_rate:
+    default: 0.00001
+    head: 0.0001
+  optim_args:
+    betas: [0.9, 0.998]
+    weight_decay: 0.00001
+  scheduler_type: MultiStepLR
+  scheduler_args:
+    milestones: [20, 35]
+  start_epoch: 0
+
+
+feeder_args:
+  train:
+    input_list_file: ./data/train_self.json
+    num_frames: 32
+    data_type: ['d_features']
+  val:
+    input_list_file: ./data/val_self.json
+    num_frames: 32
+    data_type: ['d_features']
+  # test only used for generate submission
+  test:
+    num_frames: 32
+    data_type: ['d_features']
+  kps_config: &kps_path ./configs/kps/best_kps_config.yaml
+
+model: modules.islr_model.ISLRModel
+model_args:
+  visual_backbone_args:    
+    depth:
+      type: vit_base_patch16_224
+      stride: 8
+  
+  head_args:
+    classify:
+      type: ClassifyHead
+      in_dim: 768
+      # specify the feat used for classification
+      feat_type: depth
+      norm_classifier: True
+      norm_scale: 32
+      class_num: 1000 # this will be overwrited by len(gloss_dict)
+  temporal_arg:
+    type: Normal
+    use_loc_loss: True
+    
+  loss_weight:
+    classify: 1.0
+  
+  # use which head for prediction
+  pred_head: classify
+  temporal_arg:
+    type: Normal
+    use_loc_loss: true
+  
+aug_poss:
+  osxposs: 0.3
