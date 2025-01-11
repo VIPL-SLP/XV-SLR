@@ -17,7 +17,7 @@ conda env create -f environment.yml
 ```
 
 # Evaluation
-[to do] Download the pretrained weights and put them in the ./weights
+Download the pretrained weights from [Google Drive](https://drive.google.com/file/d/1WsKK9Ct9cGgv3vh4zI185Hd29KJAleWw/view?usp=drive_link) and put them in the ./weights
 
 
 ## RGB Track
