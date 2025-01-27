@@ -1,5 +1,4 @@
 import os
-import pdb
 import torch
 import torch.nn as nn
 
@@ -19,7 +18,6 @@ class GpuDataParallel(object):
         self.output_device = output_device if len(self.gpu_list) > 0 else "cpu"
 
     def model_to_device(self, model):
-        # model = convert_model(model)
         model = model.to(self.output_device)
         if len(self.gpu_list) > 1:
             model = nn.DataParallel(

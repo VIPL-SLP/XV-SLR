@@ -1,9 +1,5 @@
-import os
-import pdb
 import torch
-import modules
 import torch.nn as nn
-import torchvision.models as models
 from modules import gcn_modules
 
 class Identity(nn.Module):
@@ -37,9 +33,7 @@ class STGCN(nn.Module):
     def __init__(self, module_type, **module_kwargs):
         super().__init__()
         self.module_type = module_type
-        # bn_momentum = module_kwargs.pop('bn_momentum', 0.1)
         self.gcn = getattr(gcn_modules, module_type)(**module_kwargs)
-        # convert_model(self.gcn, momentum=bn_momentum)
 
     def forward(self, feats):
         if self.module_type == 'CoSign1s':

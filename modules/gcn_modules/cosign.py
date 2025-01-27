@@ -1,4 +1,3 @@
-import pdb
 import yaml
 import torch
 import numpy as np
@@ -62,7 +61,6 @@ class CoSign1s(nn.Module):
         
         self.linear = nn.Sequential(
             nn.Linear(in_channels, 64),
-            # nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
         )
 
@@ -89,7 +87,6 @@ class CoSign1s(nn.Module):
             module_key = v['module_key']
             kps_rng = v['kps_rel_range']
             if 'left_hand' in self.kps_info.keys() and 'right_hand' in self.kps_info.keys():
-                # print("success!!")
                 if cat_hand_flag:
                     if k == 'left_hand':
                         kps_rng_right = self.kps_info['right_hand']['kps_rel_range']
@@ -117,18 +114,16 @@ class CoSign1s(nn.Module):
             static = x
         static = static[..., :self.in_channels]
         # linear stage static.shape: [B(N), T, 55(V), 3(C)]
-        static = self.linear(static).permute(0, 3, 1, 2) # N, C, T, V permute: 换位
+        static = self.linear(static).permute(0, 3, 1, 2) # N, C, T, V
         cat_feat = self.process_part_features(static, self.cat_hand).transpose(1, 2) # [B,T,C]
 
         if self.CR_args is not None and self.training:
             mask_view1, mask_view2 = generate_mask(cat_feat.shape, self.part_num, \
                                     self.CR_args['clip_length'], self.CR_args['ratio'], self.final_dim)
             view1, view2 = mask_view1.to(cat_feat.device) * cat_feat, mask_view2.to(cat_feat.device) * cat_feat
-            # view1, view2 = self.fusion(view1), self.fusion(view2)
             view1 = self.fusion(view1)
             return {
                 'view1': view1,
-                # 'view2': view2
             }
         else:
             fusion_feat = self.fusion(cat_feat)

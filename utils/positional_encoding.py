@@ -1,6 +1,5 @@
 import torch
 import math
-import pdb
 class PositionalEncoding(torch.nn.Module):
     def __init__(self, d_model, max_len=2000):
         super(PositionalEncoding, self).__init__()
@@ -14,6 +13,6 @@ class PositionalEncoding(torch.nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        # x 的形状: [B, T, C]
+        # x shape: [B, T, C]
         x = x + self.pe[:, :x.size(1)]
         return x

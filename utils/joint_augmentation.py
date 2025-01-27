@@ -2,20 +2,12 @@
 # Written by Yuecong Min
 # ----------------------------------------
 import os
-
-import pdb
-import PIL
 import copy
-import glob
 import torch
 import random
-import pickle
-import matplotlib
 import numpy as np
 import numbers
 from PIL import Image
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 from utils.visualize3d import get_rotation,perspective_projection
 
 EPS = 1e-4
@@ -71,7 +63,6 @@ class RandomCrop(object):
         data_type = list(data.keys())
         need_modify = [x for x in data_type if x in ['rgb', 'depth']]
         if len(need_modify) == 0:
-            # print("crop shape:",data['2d_skeleton'].shape)
             return data
         crop_h, crop_w = self.size
         _, im_h, im_w, _ = data[need_modify[0]].shape
@@ -154,12 +145,10 @@ class RandomHorizontalFlip(object):
     def flip_skeleton(self, skeleton):
         # skeleton shape: T,N,C
         skeleton[:, :, 0] = self.skeleton_width - skeleton[:, :, 0]
-        swap_ind = (
+        swap_ind = ( # only use the efficient keypoints
             [0, 2, 1, 4, 3, 6, 5, 8, 7]
-            # list(range(9))
             + list(range(30, 51))
             + list(range(9, 30))
-            # + list(range(51, 77))
             + [55, 54, 53, 52, 51, 58, 57, 56]
             + list(range(59, 76))[::-1]
             + [76]
@@ -186,157 +175,6 @@ class RandomHorizontalFlip(object):
                     raise ValueError(f'unknown data type {k}')
         return data
 
-class RandomResize(object):
-    def __init__(self, rate):
-        self.rate = rate
-
-    def __call__(self, data):
-        # not apply for rgb data
-        data_type = list(data.keys())
-        need_modify = [x for x in data_type if x in ['2d_skeleton']]
-        scale = random.uniform(1 - self.rate, 1 + self.rate)
-        if len(need_modify) > 0:
-            for k in need_modify:
-                data[k][:, :, :2] = data[k][:, :, :2] * scale
-        return data
-
-class TemporalRescale(object):
-    def __init__(self, temp_scaling=0.2) -> None:
-        self.min_len = 32 # 16
-        self.max_len = 230 # 380
-        self.L = 1.0 - temp_scaling
-        self.U = 1.0 + temp_scaling
-
-    def __call__(self, data):
-        data_type = list(data.keys())
-        vid_len = len(data[data_type[0]])
-        new_len = int(vid_len * (self.L + (self.U - self.L) * np.random.random()))
-        if new_len < self.min_len:
-            new_len = self.min_len
-        if new_len > self.max_len:
-            new_len = self.max_len
-        if (new_len - 4) % 4 != 0:
-            new_len += 4 - (new_len - 4) % 4
-        if new_len <= vid_len:
-            index = sorted(random.sample(range(vid_len), new_len))
-        else:
-            index = sorted(random.choices(range(vid_len), k=new_len))
-        for k, v in data.items():
-            data[k] = v[index]
-        return data
-
-class TemporalFixedRescale(object):
-    def __init__(self, fixed_orig_poss, dec_poss) -> None:
-        self.min_len = 32 # 16
-        self.max_len = 230 # 380
-        self.fixed_orig_poss = fixed_orig_poss
-        self.dec_poss = dec_poss
-
-    def __call__(self, data):
-        poss = random.random()
-        if poss < self.fixed_orig_poss:
-            return data
-        poss = random.random()
-        if poss < self.dec_poss:
-            ratio = 0.5
-        else: ratio = 2
-        data_type = list(data.keys())
-        vid_len = len(data[data_type[0]])
-        new_len = int(vid_len * ratio)
-        if new_len < self.min_len:
-            new_len = self.min_len
-        if new_len > self.max_len:
-            new_len = self.max_len
-        if (new_len - 4) % 4 != 0:
-            new_len += 4 - (new_len - 4) % 4
-        if new_len <= vid_len:
-            # index = sorted([i for i in range(0,vid_len,vid_len//new_len)])
-            index = sorted(random.sample(range(vid_len), new_len))
-        else:
-            # orig_lst = [i for i in range(vid_len)]
-            # index = sorted(np.linspace(orig_lst[0],orig_lst[-1],new_len).tolist())
-            # index = [int(i) for i in index]
-            # print("orig:",orig_lst)
-            # print("new:",index) # used to check the correctness
-            index = sorted(random.choices(range(vid_len), k=new_len))
-        for k, v in data.items():
-            data[k] = v[index]
-        return data
-
-class TemporalRemove(object):
-    def __init__(self,remove_orig_poss, rm_front_poss) -> None:
-        self.min_len = 32 # 16
-        self.max_len = 230 # 380
-        self.remove_orig_poss = remove_orig_poss
-        self.rm_front_poss = rm_front_poss
-
-    def __call__(self, data):
-        poss = random.random()
-        if poss < self.remove_orig_poss:
-            return data
-        data_type = list(data.keys())
-        vid_len = len(data[data_type[0]])
-        remove_num = random.randint(1,vid_len//4)
-        new_len = vid_len - remove_num
-        
-        if new_len < self.min_len:
-            new_len = self.min_len
-        if new_len > self.max_len:
-            new_len = self.max_len
-        if (new_len - 4) % 4 != 0:
-            new_len += 4 - (new_len - 4) % 4
-        if new_len < vid_len:
-            poss = random.random()
-            if poss < self.rm_front_poss:
-                index = [i for i in range(vid_len - new_len,vid_len)]
-            else: index = [i for i in range(0, new_len)]
-            for k, v in data.items():
-                data[k] = v[index]
-        return data
-
-class RandomRot(object):
-    def __init__(self, theta=0.3, skeleton_shape=(256, 256)):
-        self.theta = theta
-        self.skeleton_shape = skeleton_shape
-
-    def _rot3d(self, theta):
-        cos, sin = np.cos(theta), np.sin(theta)
-        rx = np.array([[1, 0, 0], [0, cos[0], sin[0]], [0, -sin[0], cos[0]]])
-        ry = np.array([[cos[1], 0, -sin[1]], [0, 1, 0], [sin[1], 0, cos[1]]])
-        rz = np.array([[cos[2], sin[2], 0], [-sin[2], cos[2], 0], [0, 0, 1]])
-
-        rot = np.matmul(rz, np.matmul(ry, rx))
-        return rot
-
-    def _rot2d(self, theta):
-        cos, sin = np.cos(theta), np.sin(theta)
-        return np.array([[cos, -sin], [sin, cos]])
-
-    def __call__(self, data):
-        # not apply for rgb data
-        if '2d_skeleton' in data.keys():
-            # assert we will put the conf score in the last dim
-            skeleton, conf = data['2d_skeleton'][:,:,:-1], data['2d_skeleton'][:,:,-1:]
-            T, V, C = skeleton.shape
-
-            if np.all(np.isclose(skeleton, 0)):
-                return skeleton
-
-            assert C in [2, 3]
-            if C == 3:
-                theta = np.random.uniform(-self.theta, self.theta, size=3)
-                rot_mat = self._rot3d(theta)
-            elif C == 2:
-                theta = np.random.uniform(-self.theta, self.theta)
-                rot_mat = self._rot2d(theta)
-            for i in range(C):
-                skeleton[:, :, i] -= (self.skeleton_shape[i] // 2)
-            skeleton = np.einsum('ab,tvb->tva', rot_mat, skeleton)
-            for i in range(C):
-                skeleton[:, :, i] += (self.skeleton_shape[i] // 2)
-            data['2d_skeleton'] = np.concatenate([skeleton, conf], axis=-1)
-        return data
-
 class RandomOSX(object):
     def __init__(self,fid,osxposs, pose_idx):
         self.osxposs = osxposs
@@ -350,14 +188,11 @@ class RandomOSX(object):
         if poss > self.osxposs:
             return data
         pkl_file = f'./MM_WLAuslan/train/kf/2d_skeleton/{fid}_kf_rgb_kps3d.npy'
-        # 3D骨架点存储方式是个字典
+        # 3D keypoints are stored in dict format
         assert(os.path.exists(pkl_file))
-        # pdb.set_trace()
         info = np.load(pkl_file, allow_pickle=True).item()
         if 'skeleton' not in info.keys():
             return data
-        # print("keys:",info.keys())
-        # angle = [-10,30,0]
         angle = [random.randint(-10,10),random.randint(-30,30),0]
         
         global_rot = torch.from_numpy(
@@ -378,123 +213,9 @@ class RandomOSX(object):
                 info['focal'],
                 info['princpt'],
             )
-        # 要抽出body和left/right hand!!!
+        # extract kps of body and left/right hand
         skeleton_data = (projected_2d.cpu().detach().numpy())
         skeleton_data = skeleton_data[:,self.pose_idx] # [T,51,2]
-        # print("osx pose_idx:",self.pose_idx)
         skeleton_data = np.concatenate((skeleton_data,np.ones((skeleton_data.shape[0],skeleton_data.shape[1], 1))),axis=-1)
-        # print("osx shape:",skeleton_data.shape)
         data['2d_skeleton'] = skeleton_data
         return data
-
-class RandomShift(object):
-    # useless if we use cosign normalization, leave it alone
-    def __init__(self, rate):
-        self.rate = rate
-
-    def __call__(self, skeleton):
-        x_scale = random.uniform(-self.rate, self.rate)
-        y_scale = random.uniform(-self.rate, self.rate)
-        z_scale = random.uniform(-self.rate, self.rate)
-        skeleton[:, :, 0] += x_scale
-        skeleton[:, :, 1] += y_scale
-        # skeleton[:, :, 2] += z_scale
-        return skeleton
-
-class RandomMask(object):
-    # if you want to use random mask, please put it before random crop as this operation will
-    # change the size of frames and make it unmatch the coordinates of skeleton
-    def __init__(self, mask_ratio=0.2, splits=[]) -> None:
-        self.mask_ratio = mask_ratio
-        self.splits = splits
-
-    def __call__(self, clip):
-        # clip shape: T X N X 2
-        T, N, C = clip.shape
-        nparts = len(self.splits) - 1
-        mask = np.random.rand(T, nparts) > self.mask_ratio
-        for i in range(nparts):
-            if i > 0:
-                clip[:, self.splits[i] : self.splits[i + 1]][mask[:, i]] = clip[
-                    :, self.splits[i] : self.splits[i + 1]
-                ][mask[:, i]][:, 0][:, None]
-        return clip
-
-class RandomGaussianNoise:
-    def __init__(self, sigma=0.01, base='frame', shared=False):
-        assert isinstance(sigma, float)
-        self.sigma = sigma
-        self.base = base
-        self.shared = shared
-        assert self.base in ['frame', 'video']
-        if self.base == 'frame':
-            assert not self.shared
-
-    def __call__(self, data):
-        # not apply for rgb
-        if not '2d_skeleton' in data.keys():
-            return data
-        skeleton, conf = data['2d_skeleton'][:,:,:-1], data['2d_skeleton'][:,:,-1:]
-        N, V, C = skeleton.shape
-        ske_min, ske_max = skeleton.min(axis=1), skeleton.max(axis=1)
-        # MT * C
-        flag = (ske_min ** 2).sum(axis=1) > EPS
-        # MT
-        if self.base == 'frame':
-            norm = np.linalg.norm(ske_max - ske_min, axis=1) * flag
-            # MT
-        elif self.base == 'video':
-            assert np.sum(flag)
-            ske_min, ske_max = ske_min[flag].min(axis=0), ske_max[flag].max(axis=0)
-            # C
-            norm = np.linalg.norm(ske_max - ske_min)
-            norm = np.array([norm] * N) * flag
-        # MT * V
-        if self.shared:
-            noise = np.random.randn(V) * self.sigma
-            noise = np.stack([noise] * N)
-            noise = (noise.T * norm).T
-            random_vec = np.random.uniform(-1, 1, size=(C, V))
-            random_vec = random_vec / np.linalg.norm(random_vec, axis=0)
-            random_vec = np.concatenate([random_vec] * N, axis=-1)
-        else:
-            noise = np.random.randn(N, V) * self.sigma
-            noise = (noise.T * norm).T
-            random_vec = np.random.uniform(-1, 1, size=(C, N * V))
-            random_vec = random_vec / np.linalg.norm(random_vec, axis=0)
-            # C * MTV
-        random_vec = random_vec * noise.reshape(-1)
-        # C * MTV
-        random_vec = (random_vec.T).reshape(N, V, C)
-        skeleton = skeleton + random_vec
-
-        data['2d_skeleton'] = np.concatenate([skeleton, conf], axis=-1)
-
-        return data
-
-def view_skeleton_plot(skeleton, save_path):
-    plt.scatter(skeleton[:, 0], -skeleton[:, 1], c='blue')
-    for i in range(len(skeleton)):
-        plt.text(skeleton[i, 0], -skeleton[i, 1], s=str(i))
-    plt.xlim(0, 256)
-    plt.show()
-    plt.savefig(save_path)
-    plt.close()
-
-if __name__ == '__main__':
-    pkl_list = sorted(glob.glob('../dataset/phoenix14T_skeleton/fullFrame-256x256px/dev/01April_2010_Thursday_heute-6697/*.pkl'))
-    skeleton = np.array([pickle.load(open(pkl_path,'rb',))['keypoints'] for pkl_path in pkl_list])
-    kps_idx = [0, 1, 2, 5, 6, 7, 8, 9, 10] + [i - 1 for i in range(92, 113)] + [i - 1 for i in range(113, 134)]
-    skeleton = skeleton[:, kps_idx]
-    view_skeleton_plot(skeleton[0], "test.jpg")
-    aug = RandomResize(0.5)
-    skeleton = aug(skeleton)
-    view_skeleton_plot(skeleton[0], "test1.jpg")
-    # Rotate = RandomRot()
-    # view_skeleton(skeleton[0], 'flip2.png')
-    # skeleton = Flip(skeleton)
-    # skeleton = Rotate(skeleton)
-    # skeleton[:,:,0] += 128
-    # skeleton[:,:,1] += 128
-    # view_skeleton(skeleton[0], 'rotate.png')
-    # view_skeleton_plot(skeleton[0])

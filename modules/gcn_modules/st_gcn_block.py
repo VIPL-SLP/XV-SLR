@@ -1,9 +1,5 @@
 import torch
-import numpy as np
 import torch.nn as nn
-import pdb
-import math
-import copy
 
 class GCN_unit(nn.Module):
     def __init__(
@@ -32,7 +28,6 @@ class GCN_unit(nn.Module):
             bias=bias,
         )
         self.adaptive = adaptive
-        # print(self.adaptive)
         if self.adaptive:
             self.A = nn.Parameter(A.clone())
         else:

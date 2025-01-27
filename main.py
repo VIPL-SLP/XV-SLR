@@ -1,29 +1,21 @@
 import os
-
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-import pdb
-import sys
-
 import json
 import yaml
 import torch
-import random
 import importlib
 import faulthandler
-import numpy as np
-import torch.nn as nn
 from collections import OrderedDict
 
 faulthandler.enable()
 import utils
-from seq_scripts import seq_train, seq_eval, generate_submission, results_analysis, seq_final, gen_final_res
+from seq_scripts import seq_train, seq_eval, seq_final, gen_final_res
 
 
 class Processor():
     def __init__(self, arg):
         self.arg = arg
 
-        self.accelerator = None
         if self.arg.random_fix:
             self.rng = utils.RandomState(seed=self.arg.random_seed)
         self.device = utils.GpuDataParallel()
@@ -51,7 +43,6 @@ class Processor():
                 seq_train(self.data_loader['train'], self.model, self.optimizer,
                           self.device, epoch, self.recoder)
                 if eval_model:
-                    # eval all test scene
                     performance = seq_eval(
                         self.arg, self.data_loader["val"], self.model, self.device,
                         "val", epoch, self.arg.work_dir, self.recoder, self.arg.evaluate_tool
@@ -68,8 +59,6 @@ class Processor():
                         model_path = f"{self.arg.work_dir}/model_best.pt"
                         self.save_model(epoch, model_path)
         elif self.arg.phase == 'test':
-            # if self.arg.load_weights is None and self.arg.load_checkpoints is None:
-            #     raise ValueError('Please appoint --load-weights.')
             self.recoder.print_log('Model:   {}.'.format(self.arg.model))
             self.recoder.print_log('Weights: {}.'.format(self.arg.load_weights))
             seq_eval(
@@ -78,7 +67,6 @@ class Processor():
             # eval all test scene
             performance = 0
             for scene in ['ITW', 'STU', 'SYN', 'TED']:
-            # for scene in ['TED']:
                 for view in ['kl', 'kr']:
                     indictor = f'test_{scene}_{view}'
                     performance += seq_eval(
@@ -89,19 +77,8 @@ class Processor():
                 f"Epoch 6667, Average Topk-{1}\t: {performance/8:.2f}%"
             )
             self.recoder.print_log('Evaluation Done.\n')
-        elif self.arg.phase == 'analysis':
-            self.recoder.print_log('Model:   {}.'.format(self.arg.model))
-            self.recoder.print_log('Weights: {}.'.format(self.arg.load_weights))
-            results_analysis(self.data_loader, self.model, self.device, 'test', self.arg.work_dir, self.gloss_dict)
-        elif self.arg.phase == "submission":
-            for k, v in self.data_loader['test'].items():
-                seq_eval(
-                    self.arg, v, self.model, self.device,
-                    f"test_{k}", 6667, self.arg.work_dir, self.recoder, self.arg.evaluate_tool)
         elif self.arg.phase == "final":
-            ttl_dict = None
             for scene in ['ITW', 'STU', 'SYN', 'TED']:
-            # for scene in ['TED']:
                 for view in ['kl', 'kr']:
                     indictor = f'test_{scene}_{view}'
                     seq_final(
@@ -148,34 +125,27 @@ class Processor():
     def model_to_device(self, model):
         model = model.to(self.device.output_device)
         return model
-    
+
     def load_model_weights(self, model, weight_path):
         new_state_dict = model.state_dict()
         state_dict = torch.load(weight_path, map_location=torch.device('cpu'))
         state_dict = state_dict['model_state_dict']
-        for key in state_dict.keys():
-            if key in new_state_dict:
-                new_state_dict[key] = state_dict[key]
-        # 1. 记录所有成功加载的权重
+        
+        # 1. used to record all the weights loaded successfully
         loaded_keys = set()
-        
-        # 2. 比较 state_dict 和 new_state_dict，找出匹配的权重
+        # 2. compare the state_dict and the new_state_dict to find matched weights
         for key in state_dict.keys():
             if key in new_state_dict:
                 new_state_dict[key] = state_dict[key]
-                if key == 'heads.classify.classifier.weight':
-                    if self.arg.phase == 'train':
-                        new_state_dict['heads.classify.classifier_s.weight']=state_dict[key]
-                    if '2d_skeleton' in self.arg.feeder_args['train']['data_type'] and 'r_features' in self.arg.feeder_args['train']['data_type'] and not 'd_features' in self.arg.feeder_args['train']['data_type']: # RGB Fusion
-                        if self.arg.phase == 'train':
-                            if key == 'heads.classify.classifier.weight':
-                                new_state_dict['heads.classify.classifier_r.weight'] = state_dict[key]
-                        else: # the RGB-fusion model has different keys
-                            new_state_dict['heads.classify.classifier_s.weight'] = state_dict['heads.classify.classifier2.weight']
-                            new_state_dict['heads.classify.classifier_r.weight'] = state_dict['heads.classify.classifier3.weight']
                 loaded_keys.add(key)
-        
-        # 3. 检查哪些权重没有加载成功
+        if self.arg.phase == 'train':
+            new_state_dict['heads.classify.classifier_s.weight']=state_dict['heads.classify.classifier.weight']
+        elif '2d_skeleton' in self.arg.feeder_args['train']['data_type'] and 'r_features' in self.arg.feeder_args['train']['data_type'] and not 'd_features' in self.arg.feeder_args['train']['data_type']: # RGB Fusion test
+            new_state_dict['heads.classify.classifier_s.weight'] = state_dict['heads.classify.classifier2.weight']
+            new_state_dict['heads.classify.classifier_r.weight'] = state_dict['heads.classify.classifier3.weight']
+            loaded_keys.add('heads.classify.classifier2.weight')
+            loaded_keys.add('heads.classify.classifier3.weight')
+        # 3. check if there are unloaded weights
         not_loaded_keys = set(state_dict.keys()) - loaded_keys
         if not_loaded_keys:
             print("The following weights were NOT loaded:")
@@ -189,7 +159,6 @@ class Processor():
     @staticmethod
     def modified_weights(state_dict, modified=False):
         state_dict = OrderedDict([(k.replace('.module', ''), v) for k, v in state_dict.items()])
-        # state_dict = OrderedDict([(k.replace('visual_extractor', 'visual_backbone.gcn'), v) for k, v in state_dict.items()])
         if not modified:
             return state_dict
         modified_dict = dict()
@@ -237,7 +206,6 @@ class Processor():
         self.recoder.print_info("Loading test data")
         self.feeder = import_class(self.arg.feeder)
         for scene in ['ITW', 'STU', 'SYN', 'TED']:
-            # for view in ['kf', 'kl', 'kr']:
             for view in ['kl', 'kr']:
                 kps_config = self.arg.feeder_args['kps_config']
                 mode, train_flag = 'test', False
@@ -279,7 +247,6 @@ def import_class(name):
 if __name__ == '__main__':
     sparser = utils.get_parser()
     p = sparser.parse_args()
-    # p.config = "baseline_iter.yaml"
     if p.config is not None:
         with open(p.config, 'r') as f:
             try:
@@ -293,7 +260,5 @@ if __name__ == '__main__':
                 assert (k in key)
         sparser.set_defaults(**default_arg)
     args = sparser.parse_args()
-    # with open(f"./configs/{args.dataset}.yaml", 'r') as f:
-    #     args.dataset_info = yaml.load(f, Loader=yaml.FullLoader)
     processor = Processor(args)
     processor.start()

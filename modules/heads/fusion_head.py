@@ -1,31 +1,23 @@
-import pdb
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from utils.positional_encoding import PositionalEncoding
-# from modules.temporal_module.transformer import TransformerEncoderLayer, TransformerEncoder
 from torch.nn import TransformerEncoderLayer, TransformerEncoder
-import numpy as np
 from modules.utils.slr_utils import NormBothLinear
-import random
 
 class FusionHead(nn.Module):
-    def __init__(self, in_dim, class_num, feat_type, norm_classifier=True,norm_scale=32,mask_args=None,ratio=None):
+    def __init__(self, in_dim, class_num, feat_type, norm_classifier=True,norm_scale=32,ratio=None):
         super(FusionHead, self).__init__()
         self.part_num = 3
         self.s_ratio = ratio['s_ratio']
         self.r_ratio = ratio['r_ratio']
         self.d_ratio = ratio['d_ratio']
-        self.mode_arg = mask_args['mode_arg']
-        self.CR_arg = mask_args['CR_arg']
-        self.temp_arg = mask_args['temp_arg']
 
         hidden_dim = 1024
-        # 定义输入特征的线性映射
+        # define the linear mapping of input features
         self.fc_rgb = nn.Linear(768, hidden_dim)
         self.fc_depth = nn.Linear(768, hidden_dim)
         
-        # 创建固定的位置编码
+        # fixed positional encoding
         self.pe = PositionalEncoding(hidden_dim)
 
         self.skeleton_modality_token = nn.Parameter(torch.randn(1, 1, hidden_dim))
@@ -33,7 +25,6 @@ class FusionHead(nn.Module):
         self.depth_modality_token = nn.Parameter(torch.randn(1, 1, hidden_dim))
         self.cls_token = nn.Parameter(torch.randn(1, 1, hidden_dim))
         
-        # 定义 Transformer 编码器层
         transformer_layer = TransformerEncoderLayer(
             d_model=hidden_dim, 
             nhead=8,
@@ -44,7 +35,6 @@ class FusionHead(nn.Module):
             num_layers=4
         )
         
-        # 分类器
         if norm_classifier:
             self.scale = norm_scale
             self.classifier = NormBothLinear(hidden_dim, class_num)
@@ -60,7 +50,7 @@ class FusionHead(nn.Module):
     def gen_mask(self,B,T,len_x):
         return torch.arange(T).expand(B, T) >= len_x.unsqueeze(1)
 
-    def forward(self, feat_dict, len_sk, len_rgb, len_dp,device, label=None,len_x=None,temporal_arg=None):
+    def forward(self, feat_dict, len_sk, len_rgb, len_dp,device, label=None,len_x=None):
         skeleton_feat = feat_dict['2d_skeleton']
         B, T1, _ = skeleton_feat.shape
         rgb_feat = self.fc_rgb(feat_dict['rgb'])
@@ -111,14 +101,14 @@ class FusionHead(nn.Module):
             # combie mask
             src_key_padding_mask = torch.cat([single_mask,single_mask, sk_src_key_padding_mask,single_mask, rgb_src_key_padding_mask], dim=1)  # [B, 3+T1+T2]
         
-        # Transformer 进行特征融合
+        # feature fusion
         transformer_output = self.transformer_encoder(
             combined_feat,
             src_key_padding_mask=src_key_padding_mask
             )  # [B, 1+T1+T2, 1024]
         
         cls_token_output  = transformer_output[:, 0]  # [B, 1024]
-        # 分类头
+
         logits = self.classifier(cls_token_output) * self.scale
 
         aux_logits1 = self.classifier_s(transformer_output[:, 1:1+(T1+1)].mean(dim=1)) * self.scale
@@ -128,7 +118,6 @@ class FusionHead(nn.Module):
         if 'depth' in feat_dict.keys():
             aux_logits3 = self.classifier_d(transformer_output[:, 1+(T1+1)+(T2+1):].mean(dim=1)) * self.scale
         
-        # 训练时计算损失
         if self.training:
 
             loss_cls = self.loss_func(logits, label)
@@ -178,7 +167,6 @@ class ClassifyHead(nn.Module):
         self.framewiseloss = nn.BCEWithLogitsLoss(reduction='none')
     
     def forward(self, feat_dict, label=None, len_x=None,temporal_arg=None):
-        # pdb.set_trace()
         temporaltype = temporal_arg['type']
         
         feat = feat_dict[self.feat_type] # [1,64,1024][B,T,C]
@@ -202,16 +190,15 @@ class ClassifyHead(nn.Module):
             if temporaltype == 'LSTM':
                 framewise_labels = label_onehot.unsqueeze(2).expand(-1, -1, T)
                 for i in range(B):
-                    # 获取该样本的有效帧数
+                    # valid frames
                     valid_len = len_x[i]
                     
-                    # 截取 per_frame_logits 和 framewise_labels 到有效长度
                     logits_i = per_frame_logits[i, :valid_len, :]  # [valid_len, class_num]
                     labels_i = framewise_labels[i, :valid_len, :]  # [valid_len, class_num]
-                    # 计算逐帧损失
+                    # frame-wise loss
                     loc_loss += self.framewiseloss(logits_i, labels_i).mean()
 
-                loc_loss /= B  # 计算平均损失
+                loc_loss /= B # avg loss
 
             else:
                 loc_loss = self.framewiseloss(

@@ -1,8 +1,3 @@
-import os
-import pdb
-
-import glob
-import copy
 import torch
 import numpy as np
 
@@ -125,43 +120,3 @@ def get_rotation(theta_x=0, theta_y=0, theta_z=0):
     ])
     
     return R_axis_z @ R_axis_y @ R_axis_x
-
-if __name__ == '__main__':
-    video_list = sorted(glob.glob('./val/kf/rgb/*'))
-    for dir_path in video_list:
-        fname = os.path.basename(dir_path)
-        img_list = sorted(glob.glob(f'{dir_path}/*.jpg'))
-        print(dir_path, len(img_list))
-        img_list = [cv2.imread(img_path) for img_path in img_list]
-        pkl_file = f'./val/kf/2d_skeleton/{fname}_kf_rgb_kps3d.npy'
-        info = np.load(pkl_file, allow_pickle=True).item()
-
-        for viewid, angle in enumerate([
-                [-10, 0, 0], [0, 0, 0], [10, 0, 0],
-                [0, -30, 0], [0, 30, 0],
-            ]):
-            global_rot = torch.from_numpy(
-                get_rotation(
-                    # For x-axis, [-10, 10] are suitable
-                    theta_x=np.radians(angle[0]), 
-                    # For y-axis, [-30, 30] are suitable
-                    theta_y=np.radians(angle[1]),
-                    # For z-axis, there is no need to adjust
-                    theta_z=np.radians(angle[2]),
-                    )
-                ).unsqueeze(0).expand(len(info['skeleton']), -1, -1).float()
-
-            projected_2d = perspective_projection(
-                info['skeleton'], 
-                global_rot,
-                info['global_translation'],
-                info['focal'],
-                info['princpt'],
-            )
-
-            saved_jts = projected_2d.cpu().detach().numpy()
-            cv =  CocoViewer()
-            tmp_img = copy.deepcopy(img_list[0])
-            save_img = cv.draw_single_image(saved_jts[0], tmp_img)
-            cv2.imwrite(f'valid_{str(viewid).zfill(3)}.jpg', save_img)
-        pdb.set_trace()

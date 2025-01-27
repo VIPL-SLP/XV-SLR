@@ -1,18 +1,13 @@
 import os
 
 import sys
-import pdb
 import json
 import glob
 import yaml
 import torch
-import pickle
-import random
 import numpy as np
 from PIL import Image
-from torchvision import transforms
 import torch.utils.data as data
-import matplotlib.pyplot as plt
 from utils import joint_augmentation
 sys.path.append("..")
 stride = 16
@@ -51,15 +46,6 @@ class JointFeeder(data.Dataset):
             view = self.view
             fi['view'] = view
         label = self.dict['gloss2id'][gloss]
-        # if 'r_features' in self.data_type or 'd_features' in self.data_type: # features不需要额外处理
-        #     data = self.read_data(fid, save_path, view)
-        #     # data['r_features'] = torch.from_numpy(data['r_features']).float()
-        #     # data['d_features'] = torch.from_numpy(data['d_features']).float()
-        #     # data['2d_skeleton'] = torch.from_numpy(data['2d_skeleton']).float()
-            
-        #     data['label'] = int(label)
-        #     data['info'] = fi
-        #     return data
         data = self.read_data(fid, save_path, view)
         data = self.spatial_data_aug(data,fid,self.osxposs)
         data = self.temporal_data_aug(data)
@@ -70,8 +56,6 @@ class JointFeeder(data.Dataset):
     
     def _load_skeleton(self, sks_path):
         pose = np.load(sks_path)
-        # print("orig pose:",pose.shape)
-        # print("new shape:",pose[:, self.pose_idx].shape)
         return pose[:, self.pose_idx]
 
     def _load_video(self, video_dir, dtype='jpg'):
@@ -142,10 +126,7 @@ class JointFeeder(data.Dataset):
         if self.transform_mode == "train":
             print("Apply training transform.")
             return joint_augmentation.Compose([
-                # joint_augmentation.RandomBGPerturb(0.5),
-                # joint_augmentation.RandomCrop(224),
                 joint_augmentation.RandomOSX(fid,osxposs,self.pose_idx),
-                # joint_augmentation.RandomHorizontalFlip(0.5),
             ])
         else:
             print("Apply testing transform.")
@@ -173,7 +154,6 @@ class JointFeeder(data.Dataset):
     def normalize_all(self, data):
         for k, v in data.items():
             if k == 'rgb' or k == 'depth':
-                # data[k] = v.float() / 127.5 - 1
                 data[k] = self.video_norm(v.float())
             elif k == '2d_skeleton':
                 data[k] = self.shoulder_hand_norm(v)
@@ -184,12 +164,6 @@ class JointFeeder(data.Dataset):
         return data
     
     def video_norm(self, video):
-        # for i3d normalize video shape T,H,W,3
-        # mean = [114.75, 114.75, 114.75]
-        # std = [57.375, 57.375, 57.375]
-        # for i in range(3):
-        #     video[...,i] -= mean[i]
-        #     video[...,i] /= std[i]
 
         # for video mae norm
         video /= 255
@@ -225,7 +199,6 @@ class JointFeeder(data.Dataset):
         else:
             input_data = origin_input_data
 
-        # width = 127.5
         if 'body' in self.module_keys:
             shoulder_length = torch.mean(torch.sqrt(torch.sum(torch.pow(input_data[:,3,:] - input_data[:,4,:], 2), dim=-1)))
             # norm according to shoulder, as person will be close or far to the screen
@@ -275,7 +248,7 @@ class JointFeeder(data.Dataset):
     @staticmethod
     def collate_fn(batch,temporaltype): 
         def padded(in_data,res_frames): # in_data.shape: [T,51,3]
-            ret = torch.cat( # 左边不填充，因为要从左往右滑动
+            ret = torch.cat( # since the sliding starts from the left edge so the left side is not padded
                 (
                     in_data,
                     in_data[-1][None].expand(res_frames, -1, -1),
@@ -285,7 +258,7 @@ class JointFeeder(data.Dataset):
             return ret
         
         def padded_ft(in_data,res_frames): # in_data.shape: [window_num,768]
-            ret = torch.cat( # 左边不填充，因为要从左往右滑动
+            ret = torch.cat( # since the sliding starts from the left edge so the left side is not padded
                 (
                     in_data,
                     in_data[-1][None].expand(res_frames, -1),
@@ -309,7 +282,7 @@ class JointFeeder(data.Dataset):
             elif k == 'info':
                 batched_data[k] = [item[k] for item in batch]
             else:
-                if temporaltype == 'LSTM': # return the very organic data, only padded for convenient fetch
+                if temporaltype == 'LSTM': # only padded for convenient fetch
                     mx_len = max([len(item[k]) for item in batch]) 
                     if k == '2d_skeleton':
                         batched_data['len'] = torch.tensor([len(item[k]) for item in batch])
