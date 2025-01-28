@@ -1,8 +1,5 @@
-import pdb
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
 
 class BiLSTMLayer(nn.Module):
     def __init__(self, input_size, debug=False, hidden_size=512, num_layers=1, dropout=0.3,
@@ -23,9 +20,6 @@ class BiLSTMLayer(nn.Module):
             num_layers=self.num_layers,
             dropout=self.dropout,
             bidirectional=self.bidirectional)
-        # for name, param in self.rnn.named_parameters():
-        #     if name[:6] == 'weight':
-        #         nn.init.orthogonal_(param)
 
     def forward(self, src_feats, src_lens, hidden=None):
         """

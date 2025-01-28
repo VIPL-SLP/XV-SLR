@@ -69,17 +69,6 @@ model_args:
       norm_classifier: True
       norm_scale: 32
       class_num: 1000 # this will be overwrited by len(gloss_dict)
-      mask_args:
-        mode_arg:
-          ratio: 0.0
-          sk_mask_ratio: 0.5
-        CR_arg:
-          use: False
-          clip_length: 25
-          ratio: 0.2
-        temp_arg:
-          use: False
-          ratio: 0.2
       ratio:
         s_ratio: 1
         r_ratio: 1
